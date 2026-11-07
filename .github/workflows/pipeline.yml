@@ -1,9 +1,10 @@
+
 name: Deployment pipeline
 
 on:
   push:
     branches:
-      main
+      - main
   pull_request:
     branches: [main]
     types: [opened, synchronize]
@@ -13,29 +14,50 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+
       - uses: actions/setup-node@v6
         with:
           node-version: '24'
-      - name: Install dependencies 
-        run: npm install  
-      - name: Check style        
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Check style
         run: npm run eslint
+
       - name: Run npm test
         run: npm test
+
       - name: Run npm build
-        run: npm run build 
+        run: npm run build
+
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium
 
       - name: Run E2E tests
-        run: npm run test:e2e  
-      
-      - name: Trigger deployment
-        if: "!contains(join(github.event.commits.*.message, ' '), '#skip')"
-        run: curl ${{ secrets.RENDER_DEPLOY_HOOK }}
-        
+        run: npm run test:e2e
 
-    
+      - name: Trigger deployment
+        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && !contains(join(github.event.commits.*.message, ' '), '#skip') }}
+        run: curl ${{ secrets.RENDER_DEPLOY_HOOK }}
+
+      - name: Discord notification on failure
+        if: failure()
+        uses: sarisia/actions-status-discord@v1
+        with:
+          webhook: ${{ secrets.DISCORD_WEBHOOK }}
+          status: Failure
+          title: "Build failed!"
+          description: |
+            A workflow step has failed.
+
+            Repository: ${{ github.repository }}
+            Branch: ${{ github.ref_name }}
+            Commit: ${{ github.sha }}
+            Commit message: ${{ github.event.head_commit.message || github.event.pull_request.title || 'Unavailable' }}
+
+            [View failed workflow](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+
   tag_release:
     needs: [simple_deployment_pipeline]
     runs-on: ubuntu-latest
@@ -46,7 +68,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0      
+          fetch-depth: 0
+
       - name: Bump version and push tag
         if: "!contains(join(github.event.commits.*.message, ' '), '#skip')"
         uses: anothrNick/github-tag-action@v1
@@ -55,38 +78,8 @@ jobs:
           DEFAULT_BUMP: patch
           DRY_RUN: true
 
-      - uses: sarisia/actions-status-discord@v1
-        if: always()
-        with:
-          webhook: ${{ secrets.DISCORD_WEBHOOK }}
-          status: ${{ job.status }}
-          content: "Hey <@316911818725392384>"
-          title: "deploy"
-          description: "Build and deploy to GitHub Pages"
-          image: ${{ secrets.EMBED_IMAGE }}
-          color: 0x0000ff
-          url: "https://github.com/sarisia/actions-status-discord"
-          username: GitHub Actions
-          avatar_url: ${{ secrets.AVATAR_URL }}
-
-      - name: Discord notification on failure
-        if: failure()
-        uses: sarisia/actions-status-discord@v1
-        with:
-          webhook: ${{ secrets.DISCORD_WEBHOOK }}
-          status: Failure
-          title: "Build failed!"
-          description: |
-            **A workflow step has failed.**
-
-            Repository: ${{ github.repository }}
-            Branch: ${{ github.ref_name }}
-            Commit: ${{ github.sha }}
-            Commit message: ${{ github.event.head_commit.message || github.event.pull_request.title || 'Unavailable' }}
-
-            [View failed workflow](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
-
-            - name: Discord notification on success
+      - name: Discord notification on success
+        if: success() && !contains(join(github.event.commits.*.message, ' '), '#skip')
         uses: sarisia/actions-status-discord@v1
         with:
           webhook: ${{ secrets.DISCORD_WEBHOOK }}
