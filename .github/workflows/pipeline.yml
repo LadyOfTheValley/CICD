@@ -31,6 +31,7 @@ jobs:
         run: npm run test:e2e  
       
       - name: Trigger deployment
+        if: "!contains(join(github.event.commits.*.message, ' '), '#skip')"
         run: curl ${{ secrets.RENDER_DEPLOY_HOOK }}
         
 
@@ -47,6 +48,7 @@ jobs:
         with:
           fetch-depth: 0      
       - name: Bump version and push tag
+        if: "!contains(join(github.event.commits.*.message, ' '), '#skip')"
         uses: anothrNick/github-tag-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
