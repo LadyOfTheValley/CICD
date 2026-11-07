@@ -10,7 +10,7 @@ on:
     types: [opened, synchronize]
 
 jobs:
-  simple_deployment_pipeline:
+  test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -25,11 +25,35 @@ jobs:
       - name: Check style
         run: npm run eslint
 
-      - name: Run npm test
+      - name: Run tests
         run: npm test
 
-      - name: Run npm build
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build
         run: npm run build
+
+  e2e_tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+
+      - name: Install dependencies
+        run: npm install
 
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium
@@ -37,12 +61,58 @@ jobs:
       - name: Run E2E tests
         run: npm run test:e2e
 
+  deploy:
+    needs: [test, build, e2e_tests]
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && !contains(join(github.event.commits.*.message, ' '), '#skip') }}
+    steps:
       - name: Trigger deployment
-        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && !contains(join(github.event.commits.*.message, ' '), '#skip') }}
         run: curl ${{ secrets.RENDER_DEPLOY_HOOK }}
 
+  tag_release:
+    needs: [deploy]
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && !contains(join(github.event.commits.*.message, ' '), '#skip') }}
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Bump version and push tag
+        uses: anothrNick/github-tag-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DEFAULT_BUMP: patch
+          DRY_RUN: true
+
+  notify_success:
+    needs: [deploy]
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && !contains(join(github.event.commits.*.message, ' '), '#skip') }}
+    steps:
+      - name: Discord notification on success
+        uses: sarisia/actions-status-discord@v1
+        with:
+          webhook: ${{ secrets.DISCORD_WEBHOOK }}
+          status: Success
+          title: "New version deployed successfully!"
+          description: |
+            A new version has been deployed.
+
+            Repository: ${{ github.repository }}
+            Branch: main
+            Commit: ${{ github.sha }}
+
+            [View workflow](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+
+  notify_failure:
+    needs: [test, build, e2e_tests, deploy, tag_release]
+    runs-on: ubuntu-latest
+    if: failure()
+    steps:
       - name: Discord notification on failure
-        if: failure()
         uses: sarisia/actions-status-discord@v1
         with:
           webhook: ${{ secrets.DISCORD_WEBHOOK }}
@@ -57,39 +127,3 @@ jobs:
             Commit message: ${{ github.event.head_commit.message || github.event.pull_request.title || 'Unavailable' }}
 
             [View failed workflow](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
-
-  tag_release:
-    needs: [simple_deployment_pipeline]
-    runs-on: ubuntu-latest
-    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
-    permissions:
-      contents: write
-
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Bump version and push tag
-        if: "!contains(join(github.event.commits.*.message, ' '), '#skip')"
-        uses: anothrNick/github-tag-action@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          DEFAULT_BUMP: patch
-          DRY_RUN: true
-
-      - name: Discord notification on success
-        if: success() && !contains(join(github.event.commits.*.message, ' '), '#skip')
-        uses: sarisia/actions-status-discord@v1
-        with:
-          webhook: ${{ secrets.DISCORD_WEBHOOK }}
-          status: Success
-          title: "New version deployed successfully!"
-          description: |
-            A new version has been deployed.
-
-            Repository: ${{ github.repository }}
-            Branch: main
-            Commit: ${{ github.sha }}
-
-            [View workflow](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
