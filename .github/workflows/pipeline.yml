@@ -30,6 +30,6 @@ jobs:
       - name: Run E2E tests
         run: npm run test:e2e  
       
-      // Testing GitHub Actions deployment condition
+      # Testing GitHub Actions deployment condition
       - name: Trigger deployment
         run: curl ${{ secrets.RENDER_DEPLOY_HOOK }}    
